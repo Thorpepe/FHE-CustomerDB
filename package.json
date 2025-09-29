@@ -29,6 +29,7 @@
     "@zama-fhe/oracle-solidity": "^0.1.0"
   },
   "devDependencies": {
+    "dotenv": "^16.4.5",
     "@fhevm/hardhat-plugin": "^0.1.0",
     "@nomicfoundation/hardhat-chai-matchers": "^2.1.0",
     "@nomicfoundation/hardhat-ethers": "^3.1.0",

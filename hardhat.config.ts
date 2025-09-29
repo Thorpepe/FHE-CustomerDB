@@ -8,7 +8,9 @@ import "hardhat-gas-reporter";
 import type { HardhatUserConfig } from "hardhat/config";
 import { vars } from "hardhat/config";
 import "solidity-coverage";
+import * as dotenv from "dotenv";
 
+dotenv.config();
 import "./tasks/accounts";
 import "./tasks/FHECounter";
 
@@ -85,3 +87,5 @@ const config: HardhatUserConfig = {
 };
 
 export default config;
+import { config as dotenvConfig } from "dotenv";
+dotenvConfig();
