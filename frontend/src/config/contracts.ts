@@ -1,7 +1,7 @@
 // CustomerDB contract on Sepolia
 // Replace `CONTRACT_ADDRESS` with the deployed address.
 // Copy ABI from deployments/sepolia/CustomerDB.json to keep in sync.
-export const CONTRACT_ADDRESS = '';
+export const CONTRACT_ADDRESS = '0x1B095aCA89ad1eC30dC6DE4cB6a6f99B9Ca6825d';
 
 export const CONTRACT_ABI = [
   {

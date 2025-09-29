@@ -13,7 +13,11 @@ function App() {
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
         <RainbowKitProvider locale="en">
-          <div style={{ minHeight: '100vh', backgroundColor: '#f9fafb' }}>
+          <div style={{
+            minHeight: '100vh',
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+          }}>
             <PurchaseApp />
           </div>
         </RainbowKitProvider>

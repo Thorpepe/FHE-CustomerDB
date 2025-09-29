@@ -77,40 +77,56 @@ export function PurchaseForm() {
 
   return (
     <div className="card">
-      <h2 className="title">Submit Purchase</h2>
+      <h2 className="title">🛒 Submit Purchase</h2>
+      <div style={{
+        color: '#6b7280',
+        fontSize: '1.1rem',
+        marginBottom: '1.5rem',
+        padding: '1rem',
+        background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1))',
+        borderRadius: '12px',
+        border: '1px solid rgba(102, 126, 234, 0.2)'
+      }}>
+        🔒 Protect Customer's privacy. All customer's purchase data is encrypted by Zama.
+      </div>
       <form onSubmit={onSubmit} className="form">
-        <label className="label">Customer Address</label>
-        <input
-          className="input"
-          placeholder="0x..."
-          value={customer}
-          onChange={(e) => setCustomer(e.target.value)}
-        />
+        <div>
+          <label className="label">👤 Customer Address</label>
+          <input
+            className="input"
+            placeholder="0x... (Ethereum wallet address)"
+            value={customer}
+            onChange={(e) => setCustomer(e.target.value)}
+          />
+        </div>
 
         <div className="grid">
           <div>
-            <label className="label">Item ID</label>
+            <label className="label">🏷️ Item ID</label>
             <input
               className="input"
               type="number"
+              placeholder="e.g. 12345"
               value={itemId}
               onChange={(e) => setItemId(e.target.value)}
             />
           </div>
           <div>
-            <label className="label">Price</label>
+            <label className="label">💰 Price</label>
             <input
               className="input"
               type="number"
+              placeholder="e.g. 100"
               value={price}
               onChange={(e) => setPrice(e.target.value)}
             />
           </div>
           <div>
-            <label className="label">Quantity</label>
+            <label className="label">📦 Quantity</label>
             <input
               className="input"
               type="number"
+              placeholder="e.g. 2"
               value={quantity}
               onChange={(e) => setQuantity(e.target.value)}
             />
@@ -118,7 +134,7 @@ export function PurchaseForm() {
         </div>
 
         <button className="button" disabled={isSubmitting || !instance}>
-          {isSubmitting ? 'Submitting...' : 'Submit'}
+          {isSubmitting ? '⏳ Submitting...' : '🚀 Submit Purchase'}
         </button>
 
         {status && <p className="hint">{status}</p>}
