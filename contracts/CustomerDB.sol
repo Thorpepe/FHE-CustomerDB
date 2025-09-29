@@ -1,155 +1,71 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {FHE, euint32, euint64, externalEuint32, externalEuint64} from "@fhevm/solidity/lib/FHE.sol";
+import {FHE, euint32, externalEuint32} from "@fhevm/solidity/lib/FHE.sol";
 import {SepoliaConfig} from "@fhevm/solidity/config/ZamaConfig.sol";
 
-/// @title Customer Shopping Database with FHE
-/// @notice Stores encrypted shopping information for users with privacy protection
+/// @title Encrypted Customer Purchases Database
+/// @notice Stores encrypted purchase records per customer using Zama FHEVM
+/// @dev Encrypted fields are stored as euint32 to keep inputs compact and simple.
 contract CustomerDB is SepoliaConfig {
     struct Purchase {
-        euint32 productId;    // Encrypted product ID
-        euint64 price;        // Encrypted price
-        euint32 quantity;     // Encrypted quantity
-        uint256 timestamp;    // Purchase timestamp (not encrypted)
-        bool exists;          // Flag to check if purchase exists
+        euint32 itemId;
+        euint32 price;
+        euint32 quantity;
+        uint64 timestamp;
     }
 
-    // Mapping from user address to array of purchase IDs
-    mapping(address => uint256[]) private userPurchases;
+    mapping(address => Purchase[]) private _purchases;
 
-    // Mapping from purchase ID to purchase data
-    mapping(uint256 => Purchase) private purchases;
-
-    // Counter for purchase IDs
-    uint256 private purchaseCounter;
-
-    // Events
-    event PurchaseAdded(address indexed user, uint256 indexed purchaseId, uint256 timestamp);
-    event DecryptionRequested(address indexed user, uint256 indexed purchaseId);
-
-    /// @notice Add a new purchase record
-    /// @param encryptedProductId Encrypted product ID
-    /// @param encryptedPrice Encrypted price
-    /// @param encryptedQuantity Encrypted quantity
-    /// @param inputProof Input proof for encryption validation
+    /// @notice Append a new encrypted purchase for a customer.
+    /// @param customer The address owning the purchase list (must be provided explicitly)
+    /// @param itemIdExt Encrypted item id (external handle)
+    /// @param priceExt Encrypted price (external handle)
+    /// @param quantityExt Encrypted quantity (external handle)
+    /// @param inputProof The input proof corresponding to all provided handles
     function addPurchase(
-        externalEuint32 encryptedProductId,
-        externalEuint64 encryptedPrice,
-        externalEuint32 encryptedQuantity,
+        address customer,
+        externalEuint32 itemIdExt,
+        externalEuint32 priceExt,
+        externalEuint32 quantityExt,
         bytes calldata inputProof
     ) external {
-        // Validate and convert external encrypted inputs
-        euint32 productId = FHE.fromExternal(encryptedProductId, inputProof);
-        euint64 price = FHE.fromExternal(encryptedPrice, inputProof);
-        euint32 quantity = FHE.fromExternal(encryptedQuantity, inputProof);
+        euint32 itemId = FHE.fromExternal(itemIdExt, inputProof);
+        euint32 price = FHE.fromExternal(priceExt, inputProof);
+        euint32 quantity = FHE.fromExternal(quantityExt, inputProof);
 
-        // Create new purchase
-        uint256 purchaseId = purchaseCounter++;
-        purchases[purchaseId] = Purchase({
-            productId: productId,
-            price: price,
-            quantity: quantity,
-            timestamp: block.timestamp,
-            exists: true
-        });
+        // Persist purchase
+        _purchases[customer].push(
+            Purchase({
+                itemId: itemId,
+                price: price,
+                quantity: quantity,
+                timestamp: uint64(block.timestamp)
+            })
+        );
 
-        // Add to user's purchase list
-        userPurchases[msg.sender].push(purchaseId);
-
-        // Grant ACL permissions
-        FHE.allowThis(productId);
-        FHE.allow(productId, msg.sender);
-
+        // Allow this contract and the customer to reencrypt/decrypt
+        FHE.allowThis(itemId);
         FHE.allowThis(price);
-        FHE.allow(price, msg.sender);
-
         FHE.allowThis(quantity);
-        FHE.allow(quantity, msg.sender);
-
-        emit PurchaseAdded(msg.sender, purchaseId, block.timestamp);
+        FHE.allow(itemId, customer);
+        FHE.allow(price, customer);
+        FHE.allow(quantity, customer);
     }
 
-    /// @notice Get the number of purchases for a user
-    /// @param user User address
-    /// @return Number of purchases
-    function getPurchaseCount(address user) external view returns (uint256) {
-        return userPurchases[user].length;
+    /// @notice Get number of purchases for a given customer
+    function getPurchaseCount(address customer) external view returns (uint256) {
+        return _purchases[customer].length;
     }
 
-    /// @notice Get purchase IDs for a user
-    /// @param user User address
-    /// @return Array of purchase IDs
-    function getUserPurchaseIds(address user) external view returns (uint256[] memory) {
-        return userPurchases[user];
-    }
-
-    /// @notice Get encrypted purchase data by ID
-    /// @param purchaseId Purchase ID
-    /// @return productId Encrypted product ID
-    /// @return price Encrypted price
-    /// @return quantity Encrypted quantity
-    /// @return timestamp Purchase timestamp
-    function getPurchase(uint256 purchaseId)
-        external
-        view
-        returns (euint32 productId, euint64 price, euint32 quantity, uint256 timestamp)
-    {
-        require(purchases[purchaseId].exists, "Purchase does not exist");
-
-        Purchase memory purchase = purchases[purchaseId];
-        return (purchase.productId, purchase.price, purchase.quantity, purchase.timestamp);
-    }
-
-    /// @notice Get encrypted purchase data for a specific user purchase index
-    /// @param user User address
-    /// @param index Index in user's purchase array
-    /// @return productId Encrypted product ID
-    /// @return price Encrypted price
-    /// @return quantity Encrypted quantity
-    /// @return timestamp Purchase timestamp
-    function getUserPurchase(address user, uint256 index)
-        external
-        view
-        returns (euint32 productId, euint64 price, euint32 quantity, uint256 timestamp)
-    {
-        require(index < userPurchases[user].length, "Invalid purchase index");
-
-        uint256 purchaseId = userPurchases[user][index];
-        Purchase memory purchase = purchases[purchaseId];
-
-        return (purchase.productId, purchase.price, purchase.quantity, purchase.timestamp);
-    }
-
-    /// @notice Get purchase data for the caller's purchases
-    /// @param index Index in caller's purchase array
-    /// @return productId Encrypted product ID
-    /// @return price Encrypted price
-    /// @return quantity Encrypted quantity
-    /// @return timestamp Purchase timestamp
-    function getMyPurchase(uint256 index)
-        external
-        view
-        returns (euint32 productId, euint64 price, euint32 quantity, uint256 timestamp)
-    {
-        require(index < userPurchases[msg.sender].length, "Invalid purchase index");
-
-        uint256 purchaseId = userPurchases[msg.sender][index];
-        Purchase memory purchase = purchases[purchaseId];
-
-        return (purchase.productId, purchase.price, purchase.quantity, purchase.timestamp);
-    }
-
-    /// @notice Get total number of purchases in the system
-    /// @return Total purchase count
-    function getTotalPurchases() external view returns (uint256) {
-        return purchaseCounter;
-    }
-
-    /// @notice Check if a purchase exists
-    /// @param purchaseId Purchase ID to check
-    /// @return True if purchase exists
-    function purchaseExists(uint256 purchaseId) external view returns (bool) {
-        return purchases[purchaseId].exists;
+    /// @notice Get a purchase by index for a given customer
+    /// @dev View functions never use msg.sender for addressing; caller provides address explicitly.
+    function getPurchaseAt(
+        address customer,
+        uint256 index
+    ) external view returns (euint32 itemId, euint32 price, euint32 quantity, uint64 timestamp) {
+        Purchase storage p = _purchases[customer][index];
+        return (p.itemId, p.price, p.quantity, p.timestamp);
     }
 }
+
