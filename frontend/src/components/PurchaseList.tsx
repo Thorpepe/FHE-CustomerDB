@@ -1,203 +1,164 @@
-import { useState, useEffect } from 'react'
-import { useAccount, useReadContract } from 'wagmi'
-import { ethers } from 'ethers'
-import { CUSTOMERDB_ADDRESS, CUSTOMERDB_ABI } from '../contracts'
-import { decryptPurchaseData } from '../fhe'
+import { useMemo, useState } from 'react';
+import { useAccount } from 'wagmi';
+import { createPublicClient, http, parseAbi } from 'viem';
+import { sepolia } from 'viem/chains';
+import { useZamaInstance } from '../hooks/useZamaInstance';
+import { useEthersSigner } from '../hooks/useEthersSigner';
+import { CONTRACT_ADDRESS, CONTRACT_ABI } from '../config/contracts';
 
-interface PurchaseListProps {
-  purchaseCount: number
-  refreshTrigger: number
-}
+type PurchaseView = {
+  index: number;
+  timestamp: number;
+  itemHandle: string;
+  priceHandle: string;
+  qtyHandle: string;
+  // decrypted values
+  itemId?: string;
+  price?: string;
+  quantity?: string;
+};
 
-interface Purchase {
-  index: number
-  productId: string
-  price: string
-  quantity: string
-  timestamp: bigint
-  decrypted?: {
-    productId: number
-    price: number
-    quantity: number
-  }
-  isDecrypting?: boolean
-  decryptError?: string
-}
+export function PurchaseList() {
+  const { address } = useAccount();
+  const { instance } = useZamaInstance();
+  const signer = useEthersSigner();
+  const [rows, setRows] = useState<PurchaseView[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [decLoading, setDecLoading] = useState(false);
 
-export function PurchaseList({ purchaseCount, refreshTrigger }: PurchaseListProps) {
-  const { address } = useAccount()
-  const [purchases, setPurchases] = useState<Purchase[]>([])
-  const [isLoading, setIsLoading] = useState(false)
+  const client = useMemo(() => {
+    return createPublicClient({ chain: sepolia, transport: http() });
+  }, []);
 
-  // Fetch purchases when count changes or refresh is triggered
-  useEffect(() => {
-    if (purchaseCount > 0 && address) {
-      fetchPurchases()
-    }
-  }, [purchaseCount, refreshTrigger, address])
-
-  const fetchPurchases = async () => {
-    if (!address) return
-
-    setIsLoading(true)
-    const newPurchases: Purchase[] = []
-
+  async function load() {
+    if (!address) return;
+    if (!CONTRACT_ADDRESS) return;
+    setLoading(true);
     try {
-      // Get provider for reading
-      if (!window.ethereum) {
-        throw new Error('No ethereum provider found')
+      // Read count via viem
+      const count = await client.readContract({
+        address: CONTRACT_ADDRESS as `0x${string}`,
+        abi: CONTRACT_ABI as any,
+        functionName: 'getPurchaseCount',
+        args: [address],
+      });
+
+      const total = Number(count as bigint);
+      const list: PurchaseView[] = [];
+      for (let i = 0; i < total; i++) {
+        const res: any = await client.readContract({
+          address: CONTRACT_ADDRESS as `0x${string}`,
+          abi: CONTRACT_ABI as any,
+          functionName: 'getPurchaseAt',
+          args: [address, BigInt(i)],
+        });
+        // res = [bytes32, bytes32, bytes32, uint64]
+        list.push({
+          index: i,
+          timestamp: Number(res[3]),
+          itemHandle: res[0],
+          priceHandle: res[1],
+          qtyHandle: res[2],
+        });
       }
-
-      const provider = new ethers.BrowserProvider(window.ethereum)
-      const contract = new ethers.Contract(CUSTOMERDB_ADDRESS, CUSTOMERDB_ABI, provider)
-
-      // Fetch all purchases
-      for (let i = 0; i < purchaseCount; i++) {
-        try {
-          const [productId, price, quantity, timestamp] = await contract.getMyPurchase(i)
-
-          newPurchases.push({
-            index: i,
-            productId: productId.toString(),
-            price: price.toString(),
-            quantity: quantity.toString(),
-            timestamp: timestamp,
-          })
-        } catch (error) {
-          console.error(`Error fetching purchase ${i}:`, error)
-        }
-      }
-
-      setPurchases(newPurchases)
-    } catch (error) {
-      console.error('Error fetching purchases:', error)
+      setRows(list);
     } finally {
-      setIsLoading(false)
+      setLoading(false);
     }
   }
 
-  const handleDecrypt = async (purchase: Purchase) => {
-    if (!address) return
-
-    // Update purchase to show decrypting state
-    setPurchases(prev =>
-      prev.map(p =>
-        p.index === purchase.index
-          ? { ...p, isDecrypting: true, decryptError: undefined }
-          : p
-      )
-    )
-
+  async function decryptAll() {
+    if (!instance || !address || !rows.length) return;
+    setDecLoading(true);
     try {
-      // Get signer for decryption
-      if (!window.ethereum) {
-        throw new Error('No ethereum provider found')
-      }
+      const keypair = instance.generateKeypair();
+      const contractAddresses = [CONTRACT_ADDRESS];
+      const startTimeStamp = Math.floor(Date.now() / 1000).toString();
+      const durationDays = '10';
 
-      const provider = new ethers.BrowserProvider(window.ethereum)
-      const signer = await provider.getSigner()
+      const handles = rows.flatMap((r) => [r.itemHandle, r.priceHandle, r.qtyHandle]);
+      const handleContractPairs = handles.map((h) => ({ handle: h, contractAddress: CONTRACT_ADDRESS }));
 
-      // Decrypt the purchase data
-      const decryptedData = await decryptPurchaseData(
-        {
-          productId: purchase.productId,
-          price: purchase.price,
-          quantity: purchase.quantity,
-        },
-        CUSTOMERDB_ADDRESS,
-        signer
-      )
+      const eip712 = instance.createEIP712(
+        keypair.publicKey,
+        contractAddresses,
+        startTimeStamp,
+        durationDays,
+      );
 
-      // Update purchase with decrypted data
-      setPurchases(prev =>
-        prev.map(p =>
-          p.index === purchase.index
-            ? { ...p, decrypted: decryptedData, isDecrypting: false }
-            : p
-        )
-      )
-    } catch (error: any) {
-      console.error('Error decrypting purchase:', error)
-      setPurchases(prev =>
-        prev.map(p =>
-          p.index === purchase.index
-            ? {
-                ...p,
-                isDecrypting: false,
-                decryptError: error?.message || 'Decryption failed'
-              }
-            : p
-        )
-      )
+      const resolvedSigner = await signer;
+      if (!resolvedSigner) throw new Error('Signer not available');
+
+      const signature = await resolvedSigner.signTypedData(
+        eip712.domain,
+        { UserDecryptRequestVerification: eip712.types.UserDecryptRequestVerification },
+        eip712.message,
+      );
+
+      const result = await instance.userDecrypt(
+        handleContractPairs,
+        keypair.privateKey,
+        keypair.publicKey,
+        signature.replace('0x', ''),
+        contractAddresses,
+        address,
+        startTimeStamp,
+        durationDays,
+      );
+
+      // Map back
+      setRows((prev) =>
+        prev.map((r) => ({
+          ...r,
+          itemId: result[r.itemHandle] ?? undefined,
+          price: result[r.priceHandle] ?? undefined,
+          quantity: result[r.qtyHandle] ?? undefined,
+        })),
+      );
+    } finally {
+      setDecLoading(false);
     }
-  }
-
-  const formatTimestamp = (timestamp: bigint) => {
-    const date = new Date(Number(timestamp) * 1000)
-    return date.toLocaleString()
-  }
-
-  const formatAddress = (address: string) => {
-    return `${address.slice(0, 6)}...${address.slice(-4)}`
-  }
-
-  if (isLoading) {
-    return (
-      <div className="card loading">
-        <h2>Purchase History</h2>
-        <p>Loading purchases...</p>
-      </div>
-    )
   }
 
   return (
-    <div className="purchase-list">
-      <h2>Purchase History ({purchaseCount} purchases)</h2>
-
-      {purchases.length === 0 ? (
-        <div className="card">
-          <p>No purchases found.</p>
+    <div className="card">
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <h2 className="title">My Purchases</h2>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <button className="button" onClick={load} disabled={!address || loading}>
+            {loading ? 'Loading...' : 'Refresh'}
+          </button>
+          <button className="button" onClick={decryptAll} disabled={!address || !rows.length || decLoading}>
+            {decLoading ? 'Decrypting...' : 'Decrypt All'}
+          </button>
         </div>
+      </div>
+
+      {!address ? (
+        <p className="hint">Connect your wallet to view purchases.</p>
+      ) : !rows.length ? (
+        <p className="hint">No purchases found. Submit one in the New tab.</p>
       ) : (
-        purchases.map((purchase) => (
-          <div key={purchase.index} className="purchase-item">
-            <h3>Purchase #{purchase.index + 1}</h3>
-            <p><strong>Date:</strong> {formatTimestamp(purchase.timestamp)}</p>
-
-            <div style={{ marginTop: '1rem' }}>
-              <h4>Encrypted Data:</h4>
-              <p><strong>Product ID:</strong> <span className="encrypted-data">{formatAddress(purchase.productId)}</span></p>
-              <p><strong>Price:</strong> <span className="encrypted-data">{formatAddress(purchase.price)}</span></p>
-              <p><strong>Quantity:</strong> <span className="encrypted-data">{formatAddress(purchase.quantity)}</span></p>
-            </div>
-
-            {purchase.decrypted && (
-              <div style={{ marginTop: '1rem' }}>
-                <h4>Decrypted Data:</h4>
-                <p><strong>Product ID:</strong> <span className="decrypted-data">{purchase.decrypted.productId}</span></p>
-                <p><strong>Price:</strong> <span className="decrypted-data">{purchase.decrypted.price} wei</span></p>
-                <p><strong>Quantity:</strong> <span className="decrypted-data">{purchase.decrypted.quantity}</span></p>
-              </div>
-            )}
-
-            {purchase.decryptError && (
-              <div className="card error" style={{ marginTop: '1rem' }}>
-                <p>Decryption Error: {purchase.decryptError}</p>
-              </div>
-            )}
-
-            <div className="button-group">
-              <button
-                onClick={() => handleDecrypt(purchase)}
-                disabled={purchase.isDecrypting || !!purchase.decrypted}
-                className={purchase.decrypted ? 'button-secondary' : ''}
-              >
-                {purchase.isDecrypting ? 'Decrypting...' : purchase.decrypted ? 'Already Decrypted' : 'Decrypt Data'}
-              </button>
-            </div>
+        <div className="table">
+          <div className="thead">
+            <div>#</div>
+            <div>Date</div>
+            <div>Item</div>
+            <div>Price</div>
+            <div>Qty</div>
           </div>
-        ))
+          {rows.map((r) => (
+            <div className="trow" key={r.index}>
+              <div>{r.index + 1}</div>
+              <div>{new Date(r.timestamp * 1000).toLocaleString()}</div>
+              <div>{r.itemId ?? '***'}</div>
+              <div>{r.price ?? '***'}</div>
+              <div>{r.quantity ?? '***'}</div>
+            </div>
+          ))}
+        </div>
       )}
     </div>
-  )
+  );
 }
+
