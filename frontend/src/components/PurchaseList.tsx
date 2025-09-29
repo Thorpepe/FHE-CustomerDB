@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useAccount } from 'wagmi';
-import { createPublicClient, http, parseAbi } from 'viem';
+import { createPublicClient, http } from 'viem';
 import { sepolia } from 'viem/chains';
 import { useZamaInstance } from '../hooks/useZamaInstance';
 import { useEthersSigner } from '../hooks/useEthersSigner';
